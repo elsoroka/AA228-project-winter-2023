@@ -2,9 +2,9 @@
 
 using AutomotiveSimulator
 
-r = 5.0 # turn radius
 w = DEFAULT_LANE_WIDTH
-
+L=30
+r = 8.0
 function append_to_curve!(target::Curve, newstuff::Curve)
     s_end = target[end].s
     for c in newstuff
@@ -16,8 +16,6 @@ end
 function make_roundabout()
 	roadway = Roadway()
 	# make a loop
-	r=8.0
-	L = 30
 
 	curve = gen_bezier_curve(VecSE2(0,0.0),VecSE2(r,r,0.5*π), 0.6r, 0.6r, 51)[2:end]
 	append_to_curve!(curve, gen_bezier_curve(VecSE2(r,r,0.5*π), VecSE2(0,2*r, π),  0.6r, 0.6r, 51)[2:end])
