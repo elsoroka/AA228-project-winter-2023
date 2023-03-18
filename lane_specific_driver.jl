@@ -63,3 +63,51 @@ function get_unsafe_action(model)
         return :ACCEL
     end
 end
+
+function get_action(model::InterDriver)
+    if model.model_type == :RL
+        return get_rl_action(model)
+    elseif model.model_type == :SAFE
+        return get_safe_action(model)
+    elseif model.model_type == :UNSAFE
+        return get_unsafe_action(model)
+    end
+end
+
+
+# update the state with observations here
+function AutomotiveSimulator.observe!(model::InterDriver, scene::Scene, roadway::Roadway, egoid::Int64)
+    
+    # update state
+    x = posg(scene[egoid].state)[1:2]
+    v = velg(scene[egoid].state)
+    s = posf(scene[egoid]).s
+    model.s1 = div(s, L) # each lane is approximately 3L long so this divides into 1, 2, 3
+    states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> i != egoid && (posg(scene[i].state)[1:2]-x)⋅v > 0.0, 1:length(scene)) )
+    if length(states) == 0
+        model.s2 = 10
+    else
+        model.s2 = Integer(trunc(0.2*minimum(map( (s) -> norm(x .- s, 2), states) )))
+    end
+    v = velf(scene[egoid].state)
+    model.s3 = Integer(trunc(norm([v.t; v.s], 2)))
+    
+    # get action
+    model.action = get_action(model)
+    # update based on action
+    th = posg(scene[egoid].state)[3]
+    # translate high level MDP action to accel signal
+    if model.action == :DECEL
+        model.a = LaneSpecificAccelLatLon(-v.t, -v.s)
+    elseif model.action == :ZERO
+        model.a = LaneSpecificAccelLatLon(0.0, 0.0)
+    elseif model.action == :ACCEL
+        model.a = model.a = LaneSpecificAccelLatLon(0.1*v.t, 0.5*v.s)
+    end
+    return model
+end
+
+# Samples an action from the model
+function Base.rand(::AbstractRNG, model::InterDriver)
+    return model.a
+end
