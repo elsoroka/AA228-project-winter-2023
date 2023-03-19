@@ -29,39 +29,70 @@ mutable struct InterDriver <: DriverModel{LaneSpecificAccelLatLon}
     action::Symbol # :DECEL, :ZERO or :ACCEL
     model_type::Symbol # :RL, :SAFE = fixed safe policy, :UNSAFE = unsafe policy
     p::Float64 # Threshold used for unsafe policy to decide whether to be dangerous. Setting this high produces safer behavior
+    agent # RL Agent
 end
+InterDriver(a::LaneSpecificAccelLatLon, s1::Int, s2::Int, s3::Int, action::Symbol, model_type::Symbol, p::Float64) = InterDriver(a, s1, s2, s3, action, model_type, p, nothing)
+
+mapping = Dict(:DECEL => 1, :ZERO => 2, :ACCEL => 3)
+unmapping = Dict(1 => :DECEL, 2 => :ZERO, 3 => :ACCEL)
+
+flatten_state(s1, s2, s3) = (s1-1) * 121 + (s2-1)*11 + s3-1
+function unflatten_state(f)
+    s1 = 1 + div(f, 121)
+    f -= (s1-1)*121
+    s2 = 1 + div(f, 11)
+    f -= (s2-1)*11
+    s3 = f+1
+    return (s1, s2, s3)
+end
+
 
 # This is a roundabout driver model that behaves correctly.
 function get_safe_action(model)
     # If distance to another car is less than 2 and we are NOT in the roundabout
     if model.s2 < 2 && (model.s1 < L || model.s1 > 2*L)
-        return :DECEL
+        a = :DECEL
     # if we are going too fast, don't accelerate
     elseif model.s3 >= 10
-        return :ZERO
+        a = :ZERO
     # speed up to desired speed
     else
-        return :ACCEL
+        a = :ACCEL
     end
+    return a
 end
 
-# This is a dangerous roundabout driver who sometimes does not yield and sometimes stops in the intersection!
+# This is a dangerous driver who sometimes does not yield and sometimes stops in the roundabout!
 # I see a lot of these drivers at Stanford which is why I decided to model them
 function get_unsafe_action(model)
     # rand() returns a number between 0 and 1
     # Should we yield when outside the roundabout??
     if rand() < model.p && model.s2 < 2 && (model.s1 == 1 || model.s1 == 3)
-        return :DECEL
+        a = :DECEL
     # Should we stop inside the roundabout??
     elseif rand() > model.p && model.s2 < 2
-        return :DECEL
+        a = :DECEL
     # stay at desired speed
     elseif model.s3 >= 10
-        return :ZERO
+        a = :ZERO
     # speed up if too slow
     else
-        return :ACCEL
+        a = :ACCEL
     end
+    return a
+end
+
+function get_rl_action(model)
+	s = flatten_state(model.s1, model.s2, model.s3)
+	println("$(model.s1), $(model.s2), $(model.s3), $s")
+	vals = model.agent.R[s,:] .+ model.agent.γ*model.agent.T[s,:]⋅model.agent.U
+	# pick a random action to explore
+	a = shuffle(findall(vals .== maximum(vals)))[1][2] # the last index [2] converts from CartesianIndex to linear in this special case
+	# record progress
+	model.agent.a_record[model.agent.ptr] = a
+	model.agent.s_record[model.agent.ptr] = s
+	model.agent.ptr += 1
+    return unmapping[a]
 end
 
 function get_action(model::InterDriver)
@@ -90,20 +121,23 @@ function AutomotiveSimulator.observe!(model::InterDriver, scene::Scene, roadway:
 			return false
 		end
 		#println([vel1.x vel2.x; vel1.y vel2.y] )
-		cross_pt = [vel1.x vel2.x; vel1.y vel2.y] \ zeros(2)
-		return all(cross_pt .> 0.0) && norm(cross_pt, 2) < 2.0
+		#TODO fix
+		δt = 0.1
+		dx = (posg(v2.state)[1:2] .- posg(v1.state)[1:2])./δt
+		cross_pt = [vel1.x -vel2.x-dx[1]; vel1.y -vel2.y-dx[2]] \ zeros(2)
+		return all(cross_pt .> 0.0) && norm(cross_pt, 2) < 5.0
 		#scene[egoid].state.posF.roadind.tag == scene[i].state.posF.roadind.tag
 	end
 
-    model.s1 = div(s, L) # each lane is approximately 3L long so this divides into 1, 2, 3
+    model.s1 = div(s, L) + 1 # each lane is approximately 3L long so this divides into 1, 2, 3
     states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> is_on_collision_course(scene[egoid], scene[i]), 1:length(scene)) )
     if length(states) == 0
         model.s2 = 10
     else
-        model.s2 = Integer(trunc(0.2*minimum(map( (s) -> norm(x .- s, 2), states) )))
+        model.s2 = max(10, Integer(trunc(0.2*minimum(map( (s) -> norm(x .- s, 2), states) ))))
     end
     v = velf(scene[egoid].state)
-    model.s3 = Integer(trunc(norm([v.t; v.s], 2)))
+    model.s3 = max(10, Integer(trunc(norm([v.t; v.s], 2))))
     
     # get action
     model.action = get_action(model)
