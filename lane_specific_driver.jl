@@ -36,14 +36,54 @@ InterDriver(a::LaneSpecificAccelLatLon, s1::Int, s2::Int, s3::Int, action::Symbo
 mapping = Dict(:DECEL => 1, :ZERO => 2, :ACCEL => 3)
 unmapping = Dict(1 => :DECEL, 2 => :ZERO, 3 => :ACCEL)
 
-flatten_state(s1, s2, s3) = (s1-1) * 121 + (s2-1)*11 + s3-1
+flatten_state(s1, s2, s3) = (s1-1) * 11*11 + (s2-1)*11 + s3-1
 function unflatten_state(f)
-    s1 = 1 + div(f, 121)
-    f -= (s1-1)*121
+    s1 = 1 + div(f, 11*11)
+    f -= (s1-1)*11*11
     s2 = 1 + div(f, 11)
     f -= (s2-1)*11
     s3 = f+1
     return (s1, s2, s3)
+end
+
+n_states = 11*11*30
+n_actions = 3
+
+
+mutable struct RLAgent
+    R::Matrix{Float64}
+    counts::Matrix{Float64}
+    T::Vector{Matrix{Float64}}
+    Tcounts::Vector{Matrix{Float64}}
+    U::Matrix{Float64}
+    γ::Float64
+    p::Float64 # exploitation, make 1 for no exploration
+    # record of actions and states
+    a_record::Vector{Int}
+    s_record::Vector{Int}
+    ptr::Int
+end
+
+function normalize(T::Matrix{Float64})
+    # each row s should sum to 1
+    return T ./ sum(T, dims=2)
+end
+
+function initialize_agent(γ::Float64, p::Float64, N::Int)
+    # start with uniform reward matrix
+    R = ones(n_states, n_actions)/(n_states*n_actions)
+    counts = ones(n_states, n_actions)
+    # Initialize uniform transition matrix, rows are state s and cols are s' (new state)
+    # so each row s should sum to 1 and be the probabilities of reaching s'=1,...,n_states from s
+    TP = [ones(n_states, n_states) for i=1:n_actions]
+    T = map(normalize, TP)
+    # utility vector U(s) has n_states entries
+    U = zeros(n_states,1)
+    return RLAgent(R, counts, T, TP, U, γ, p, zeros(N), zeros(N), 1)
+end
+
+function reset_record!(agent::RLAgent)
+    agent.ptr = 1
 end
 
 
@@ -82,16 +122,20 @@ function get_unsafe_action(model)
     return a
 end
 
+# with exploration
 function get_rl_action(model)
-	s = flatten_state(model.s1, model.s2, model.s3)
-	println("$(model.s1), $(model.s2), $(model.s3), $s")
-	vals = model.agent.R[s,:] .+ model.agent.γ*model.agent.T[s,:]⋅model.agent.U
-	# pick a random action to explore
-	a = shuffle(findall(vals .== maximum(vals)))[1][2] # the last index [2] converts from CartesianIndex to linear in this special case
-	# record progress
-	model.agent.a_record[model.agent.ptr] = a
-	model.agent.s_record[model.agent.ptr] = s
-	model.agent.ptr += 1
+    s = flatten_state(model.s1, model.s2, model.s3)
+    #println("$(model.s1), $(model.s2), $(model.s3), $s")
+    vals = model.agent.R[s,:] .+ [model.agent.γ*model.agent.T[a][s,:]⋅model.agent.U for a=1:n_actions]
+    # pick a random action
+    if rand() < model.p
+        a = shuffle(findall(vals .== maximum(vals)))[1] # the last index [1] converts from CartesianIndex to linear in this special case
+    else
+        a = shuffle(1:n_actions)[1] # random action! explore
+    end # record progress
+    model.agent.a_record[model.agent.ptr] = a
+    model.agent.s_record[model.agent.ptr] = s
+    model.agent.ptr += 1
     return unmapping[a]
 end
 
@@ -113,31 +157,38 @@ function AutomotiveSimulator.observe!(model::InterDriver, scene::Scene, roadway:
     x = posg(scene[egoid].state)[1:2]
     v = velg(scene[egoid].state)
     s = posf(scene[egoid]).s
-	function is_on_collision_course(v1::Entity, v2::Entity)
-		# idea: if velocity vectors intersect at a "close by" positive point we are going to collide
-		vel1 = velg(v1.state)
-		vel2 = velg(v2.state)
-		if vel1.x == vel2.x && vel1.y == vel2.y # they are the same vehicle
-			return false
-		end
-		#println([vel1.x vel2.x; vel1.y vel2.y] )
-		#TODO fix
-		δt = 0.1
-		dx = (posg(v2.state)[1:2] .- posg(v1.state)[1:2])./δt
-		cross_pt = [vel1.x -vel2.x-dx[1]; vel1.y -vel2.y-dx[2]] \ zeros(2)
-		return all(cross_pt .> 0.0) && norm(cross_pt, 2) < 5.0
-		#scene[egoid].state.posF.roadind.tag == scene[i].state.posF.roadind.tag
-	end
+    function is_on_collision_course(v1::Entity, v2::Entity)
+        # idea: if velocity vectors intersect at a "close by" positive point we are going to collide
+        vel1 = velg(v1.state)
+        vel2 = velg(v2.state)
 
-    model.s1 = div(s, L) + 1 # each lane is approximately 3L long so this divides into 1, 2, 3
-    states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> is_on_collision_course(scene[egoid], scene[i]), 1:length(scene)) )
+        #println([vel1.x vel2.x; vel1.y vel2.y] )
+        #TODO fix
+        δt = 0.1
+        dx = (posg(v2.state)[1:2] .- posg(v1.state)[1:2])
+        projection = dx ⋅ vel1
+        if projection > 5.0 && projection < 150
+            return true
+        end
+        # SPECIAL CASE: if we are not in the roundabout and the other vehicle is
+        s1 = posf(v1.state).s
+        s2 = posf(v2.state).s
+        if (s1 < L|| s1 > 2L) && (s2 >= L && s2 <= 2L)
+            return true
+        end
+        return false
+    end
+
+    model.s1 = min(30, div(s, L/10) + 1) # each lane is approximately 3L long so this divides into 1, 2, 3
+    
+    states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> i != egoid && is_on_collision_course(scene[egoid], scene[i]), 1:length(scene)) )
     if length(states) == 0
         model.s2 = 10
     else
-        model.s2 = max(10, Integer(trunc(0.2*minimum(map( (s) -> norm(x .- s, 2), states) ))))
+        model.s2 = min(10, Integer(trunc(0.2*minimum(map( (s) -> norm(x .- s, 2), states) ))))
     end
     v = velf(scene[egoid].state)
-    model.s3 = max(10, Integer(trunc(norm([v.t; v.s], 2))))
+    model.s3 = min(10, Integer(trunc(norm([v.t; v.s], 2))))
     
     # get action
     model.action = get_action(model)
