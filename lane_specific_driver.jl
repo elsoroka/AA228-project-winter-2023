@@ -53,7 +53,7 @@ function get_unsafe_action(model)
     if rand() < model.p && model.s2 < 2 && (model.s1 == 1 || model.s1 == 3)
         return :DECEL
     # Should we stop inside the roundabout??
-    elseif rand() < model.p && model.s2 < 2
+    elseif rand() > model.p && model.s2 < 2
         return :DECEL
     # stay at desired speed
     elseif model.s3 >= 10
@@ -82,8 +82,21 @@ function AutomotiveSimulator.observe!(model::InterDriver, scene::Scene, roadway:
     x = posg(scene[egoid].state)[1:2]
     v = velg(scene[egoid].state)
     s = posf(scene[egoid]).s
+	function is_on_collision_course(v1::Entity, v2::Entity)
+		# idea: if velocity vectors intersect at a "close by" positive point we are going to collide
+		vel1 = velg(v1.state)
+		vel2 = velg(v2.state)
+		if vel1.x == vel2.x && vel1.y == vel2.y # they are the same vehicle
+			return false
+		end
+		#println([vel1.x vel2.x; vel1.y vel2.y] )
+		cross_pt = [vel1.x vel2.x; vel1.y vel2.y] \ zeros(2)
+		return all(cross_pt .> 0.0) && norm(cross_pt, 2) < 2.0
+		#scene[egoid].state.posF.roadind.tag == scene[i].state.posF.roadind.tag
+	end
+
     model.s1 = div(s, L) # each lane is approximately 3L long so this divides into 1, 2, 3
-    states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> i != egoid && (posg(scene[i].state)[1:2]-x)⋅v > 0.0, 1:length(scene)) )
+    states = map( i -> posg(scene[i].state)[1:2] , filter( (i) -> is_on_collision_course(scene[egoid], scene[i]), 1:length(scene)) )
     if length(states) == 0
         model.s2 = 10
     else
