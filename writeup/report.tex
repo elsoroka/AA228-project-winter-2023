@@ -46,10 +46,10 @@
  
 \begin{document}
 
-\title{Autonomous Driving in a Roundabout With Rule-Breaking Humans}
+\title{Autonomous Driving in a Roundabout With Rule-Breaking Agents}
 
 \author{\IEEEauthorblockN{Emiko Soroka}
-\IEEEauthorblockA{\textit{Department of Aeronautics \& Astronautics} \\
+\IEEEauthorblockA{\textit{AA 228 Final Project, Department of Aeronautics \& Astronautics} \\
 \textit{Stanford University}\\
 esoroka@stanford.edu}
 %\and
@@ -63,7 +63,7 @@ esoroka@stanford.edu}
 \maketitle
 
 \begin{abstract}
-While intersection are often used as a test case for interaction in autonomous driving, a roundabout is another interesting case where multiple agents interact. In this paper we design a discrete MDP to represent traversing a roundabout with other agents, learn the optimal policy for navigating a roundabout, and investigate how it changes when some agents break the rules of the road.
+While intersection are often used as a test case for interaction in autonomous driving, a roundabout is another interesting case where multiple agents interact. In this paper we design a discrete MDP to represent traversing a roundabout with other agents, learn the optimal policy for navigating a roundabout, and investigate how the policy changes when some agents break the rules of the road.
 \end{abstract}
 
 %\begin{IEEEkeywords}
@@ -71,7 +71,7 @@ While intersection are often used as a test case for interaction in autonomous d
 
 \section{Introduction}
 Roundabouts are relatively uncommon compared to intersections in the US,
-but are rising in popularity due to their safety and environmental benefits \cite{MANDAVILLI2008135}. Studies have found that replacing signalized intersections with roundabouts improves throughput for low-speed intersections \cite{persaud2001safety} and reduces the risk of rear-end collisions \cite{saccomanno2008comparing}. One empirical study conducted in the US found that replacing intersections with roundabouts effected a 40\% reduction in crashes, with an even greater decrease in traffic injuries and deaths \cite{persaud2001safety}.
+but are rising in popularity due to their safety and environmental benefits \cite{MANDAVILLI2008135}. Studies have found that replacing signalized intersections with roundabouts improves throughput for low-speed intersections and reduces the risk of rear-end collisions \cite{persaud2001safety, saccomanno2008comparing}. One empirical study conducted in the US found that replacing intersections with roundabouts effected a 40\% reduction in crashes, with an even greater decrease in traffic injuries and deaths \cite{persaud2001safety}.
 
 Although roundabouts are simple to navigate, with the cardinal rule being that traffic entering the roundabout yields to traffic already in the circle, human drivers who are unaware of this rule often hold up traffic by stopping in the roundabout. We are interested in two questions:
 \begin{itemize}
@@ -80,14 +80,14 @@ Although roundabouts are simple to navigate, with the cardinal rule being that t
 \end{itemize}
 
 \section*{Problem Description}
-We represent this problem as a Markov decision process (MDP) over discrete states and actions. Although many papers have focused on RL in large problem spaces and complex models for autonomous driving \cite{kiran2021deep, zhu2020safe}, we will reduce implementation difficulty by defining a small, discrete problem space.
+We represent this problem as a Markov decision process (MDP) over discrete states and actions. Although many papers have focused on RL in large problem spaces and complex models for autonomous driving \cite{kiran2021deep, zhu2020safe}, we will reduce the implementation difficulty by defining a small, discrete problem space.
 
-\subsection*{States} We define three integer-valued states: $s_1$, $s_2$ and $s_3$ (Fig. \ref{fig:statespace}).
+\subsection{States} We define three integer-valued states: $s_1$, $s_2$ and $s_3$ (Fig. \ref{fig:statespace}).
 \begin{itemize}
 	\item
 $s_1$ has 30 values, corresponding to the rounded distance traveled along the lane.
  \item
-$s_2$ is the distance between the ego vehicle and the closest vehicle that presents a collision risk. This distance ranges from $0$ to $10$.
+$s_2$ is the distance between the ego vehicle and the closest vehicle that presents a collision risk (see \ref{subs:collision}). This distance ranges from $0$ to $10$.
 \item
 $s_3$ is the ego vehicle velocity, sorted into buckets from $0$ to $10$.
 \end{itemize}
@@ -99,13 +99,13 @@ $s_3$ is the ego vehicle velocity, sorted into buckets from $0$ to $10$.
 	\label{fig:statespace}
 \end{figure}
 
-\subsection*{Actions} Our RL agent has three actions available: \verb|ZERO| (no acceleration action), \verb|ACCEL| and \verb|DECEL|. Lane-keeping is managed separately to simplify the problem, and no lane changes take place.
+\subsection{Actions} Our RL agent has three actions available: \verb|ZERO| (no acceleration action), \verb|ACCEL| and \verb|DECEL|. Lane-keeping is managed separately to simplify the problem, and no lane changes take place.
 
 With this representation, there are $|S_1|\times|S_2|\times|S_3| = 3630$ states and 3 actions. This is a relatively small problem, so it is possible to learn an optimal policy by a direct method such as Bellman iteration.
 
-\subsection*{Observations} We assume there is no noise in the system and the states are directly observed.
+\subsection{Observations} We assume there is no noise in the system and the states are directly observed.
 
-\subsection*{Reward} The RL agent receives a time-based reward $R(t)$ (Eq. \eqref{eq:reward}) for reaching its goal on the other side of the roundabout, where $N$ is the number of time steps in the simulation and $t$ is the step where the goal is reached. This incentivizes crossing the roundabout quickly. If a collision occurs, the agent receives a reward of $-1000$ and the simulation stops.
+\subsection{Reward} The RL agent receives a time-based reward $R(t)$ (Eq. \eqref{eq:reward}) for reaching its goal on the other side of the roundabout, where $N$ is the number of time steps in the simulation and $t$ is the step where the goal is reached. This incentivizes crossing the roundabout quickly. If a collision occurs, the agent receives a reward of $-1000$ and the simulation stops.
 
 \begin{equation}
 R(t) = \begin{cases}
@@ -118,9 +118,9 @@ R(t) = \begin{cases}
 \label{eq:reward}
 \end{equation}
 
-\section*{Modeling Other Drivers}
+\section{Modeling Other Drivers}
 To provide other agents for the simulation, we defined two fixed policies by observing human drivers at the Manzanita Field roundabout.
-\subsection*{Rule-Following Driver Model} The rule-following driver model approximates the correct way to navigate a roundabout. When approaching, it yields to traffic already in the roundabout. If another vehicle is too close, it decelerates unless said vehicle is not currently in the roundabout. Otherwise, it prefers to maintain a constant speed.
+\subsection{Rule-Following Driver Model} The rule-following driver model approximates the correct way to navigate a roundabout. When approaching, it yields to traffic already in the roundabout. If another vehicle is too close, it decelerates unless said vehicle is not currently in the roundabout. Otherwise, it prefers to maintain a constant speed.
 
 This model can be represented by the code:
 \begin{lstlisting}[language=python,caption={Rule-following driver model.}]
@@ -140,7 +140,7 @@ function get_lawful_action(model)
 end
 \end{lstlisting}
 
-\subsection*{Rule-Breaking Driver Model}
+\subsection{Rule-Breaking Driver Model}
 The rule-breaking driver behaves like the rule-following driver with probability $p \in [0,1]$. With probability $1-p$ it may take a rule-breaking action such as:
 \begin{itemize}
 	\item Yielding to a vehicle waiting to enter the roundabout.
@@ -183,7 +183,7 @@ We studied two cases.
 
 \textbf{Some rule-breaking drivers:} A fraction $r\in (0,1)$ of the drivers break the rules with probability $p$. We used $p=0.5$, $r=0.25$ and $r=0.5$.
 
-\subsection*{Exploration:} We initially tested several different methods of balancing exploration vs exploitation and settled on a constant 50\% chance of taking a random action during training. Other approaches tested included:
+\subsection{Exploration:} We initially tested several different methods of balancing exploration vs exploitation and settled on a constant 50\% chance of taking a random action during training. Other approaches tested included:
 \begin{itemize}
 	\item Greedy selection: this did not work because the agent did not explore enough of the state space and never learned to move forward.
 	\item Decreasing the exploration over time: this turned out to be unnecessary.
@@ -191,14 +191,14 @@ We studied two cases.
 
 \section{Implementation} Most of the work on this project was in coming up with a reasonable discretization of the state space and debugging issues related to reward and simulation design.
 
-\subsection*{State Space and Reward} The space was chosen to be large enough to capture the desired behavior while still being tractable. Various modifications had to be made to resolve problems.
+\subsection{State Space and Reward} The space was chosen to be large enough to capture the desired behavior while still being tractable. Various modifications had to be made to resolve problems.
 For example, we initially tried to use three states to capture position: before, in, and after the roundabout. This failed because the RL agent would take an action and remain in the same state, so it wasn't able to train.
 
 We also tested several reward functions before settling on an appropriate one - some tests only gave a positive reward for crossing the roundabout, but the agent wasn't able to reach it before the simulation ended and again, didn't train effectively.
 
-\subsection*{Simulation Design} A final major issue was preparing simulations that effectively explored the state space. Initial simulations used three other agents, randomly assigned to each lane, but this resulted in very few observed states where a collision was possible. The resulting agent was unlikely to decelerate and avoid collisions. We increased this number to 5, ensuring that the agent encounters situations with and without another car sharing its lane.
+\subsection{Simulation Design} A final major issue was preparing simulations that effectively explored the state space. Initial simulations used three other agents, randomly assigned to each lane, but this resulted in very few observed states where a collision was possible. The resulting agent was unlikely to decelerate and avoid collisions. We increased this number to 5, ensuring that the agent encounters situations with and without another car sharing its lane.
 
-\subsection*{Collision Course Detection}
+\subsection{Collision Course Detection}\label{subs:collision}
 A major challenge was defining and fine-tuning the human driver models for the RL agent to train with, especially correctly implementing the yielding behavior. Many challenges also arose in identifying whether two vehicles are on a collision course. Examples of these situations are shown in Figures \ref{fig:collision} and \ref{fig:bug}.
 
 \begin{figure}[h!]
@@ -308,18 +308,18 @@ With 6 vehicles in the roundabout, performance was very poor with many collision
 		\begin{tabular}{|p{8em}|ccccc|}\hline
 		Policy & Rule-breaking & \verb|exp03_unsafe_0| & \verb|exp05_unsafe_0| &  \verb|exp05_unsafe_20| &  \verb|exp05_unsafe_40| 
 		\\\hline
-		\% difference from rule-following & 8.1\% & 66.1\% & 67.7\% &67.1\% & 65.8
+		\% difference from rule-following & 8.1\% & 66.1\% & 67.7\% &67.1\% & 65.8\%
 		\\
 		\% with \verb|ACCEL| and \verb|DECEL| swapped vs rule-following & 6.7\% &
-		26.7\% & 28.8\% &27.8 \% & 27.8
+		26.7\% & 28.8\% &27.8 \% & 27.8\%
 			\\\hline
 		Policy & Rule-following & \verb|exp03_unsafe_0| & \verb|exp05_unsafe_0| &  \verb|exp05_unsafe_20| &  \verb|exp05_unsafe_40| 
 		\\\hline
 		\% difference from rule-breaking & 8.1\% & 66.9\% & 67.6\% &66.4\% &
-		65.6
+		65.6\%
 	\\
 		\% with \verb|ACCEL| and \verb|DECEL| swapped vs rule-breaking & 6.7\% &
-26.6\% & 28.1\% &26.7 \% & 27.1
+26.6\% & 28.1\% &26.7 \% & 27.1\%
 \\\hline
 		\end{tabular}
 		\caption{Comparison of state-action pairs. The agents are named according to their exploration probability (\texttt{exp}) and the percentage of rule-breaking drivers present in their training (\texttt{unsafe}).}
@@ -327,16 +327,16 @@ With 6 vehicles in the roundabout, performance was very poor with many collision
 	\end{minipage}
 \end{table}
 
-\section{Did RL actually work?} We would be remiss if we did not evaluate the RL agents skeptically, as RL has been accused of many misdeeds including, on some problems, being no better than a random policy search \cite{mania2018simple}.
+\section{Did RL actually work?} We would be remiss if we did not evaluate the RL agents skeptically, as RL has been accused of many misdeeds (including, on some problems, being no better than a random policy search \cite{mania2018simple}).
 Since performance with many vehicles in the roundabout suffered from poor implementation of the rule-breaking and rule-following drivers, we compared the state-action maps of the RL agents against the rule-following and rule-breaking drivers themselves (Table \ref{tab:comparison}). Unfortunately all four of the RL agents differ on about two-thirds of the states, suggesting they do not converge to either agents' policy.
 
 
 \section*{Conclusions}
-Reinforcement learning was not very effective for this MDP. If we had additional time, we should implement other tactics to solve the roundabout navigation problem. For example, we could try formulating the problem as a large LP or using a better representation of the value function \cite{kochenderfer2022algorithmsch7}. Additionally, there were some implementation issues with the other driver models in the simulation.
+Reinforcement learning was not very effective for this MDP. If we had additional time, we could implement other tactics to solve the roundabout navigation problem. For example, we could try formulating the problem as a large LP or using a better representation of the value function \cite{kochenderfer2022algorithmsch7}. Additionally, developing a better implementation for the rule-breaking and rule-following driver models would improve the simulation fidelity.
 
-Despite these issues the Rl agents were able to navigate an un-crowded roundabout, even when rule-breaking drivers are present. We also resolved many issues with the state space and reward function design for the problem, so improvements to these remaining issues would likely yield much better performance.
+Despite these issues the Rl agents were able to navigate an un-crowded roundabout, even when rule-breaking drivers are present. We also resolved many problems with the state space and reward function design for the problem, so improvements to the remaining issues would likely yield much better performance.
 
-Source code, data and figures for this paper can be accessed at \href{}. %TODO
+Source code, data and figures for this paper can be accessed at \href{https://github.com/elsoroka/AA228-project-winter-2023}{https://github.com/elsoroka/AA228-project-winter-2023}.
 
 \section*{Acknowledgments}
 I would like to thank Prof. Kochenderfer and all of his TAs for being great this quarter, teaching a lot of interesting material and giving us the freedom to be creative with our final projects.
@@ -347,7 +347,7 @@ Finally, my original proposal was to use MDPs for modeling intersections. Credit
 \vspace{4em}\\
 ~
 \\
-\vspace{11em}
+\vspace{13em}
 
 \bibliography{../bibliography}
 \end{document}
