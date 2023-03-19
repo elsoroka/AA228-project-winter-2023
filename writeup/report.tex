@@ -15,7 +15,7 @@
 
 \lstset{ % General setup for the package
 	language=python,
-	basicstyle=\small\sffamily,
+	basicstyle=\footnotesize\sffamily,
 	numbers=left,
 	numberstyle=\small,
 %	frame=tb,
@@ -159,6 +159,8 @@ function get_lawless_action(model)
     end
 end
 \end{lstlisting}
+
+\textbf{Note:} As becomes clear later, these two agents are not particularly skilled at navigating the intersection.
 \begin{figure}[h!]
 	\centering
 \includegraphics[width=0.7\linewidth]{figures/unsafe.png}
@@ -190,7 +192,7 @@ For example, we initially tried to use three states to capture position: before,
 
 We also tested several reward functions before settling on an appropriate one - some tests only gave a positive reward for crossing the roundabout, but the agent wasn't able to reach it before the simulation ended and again, didn't train effectively.
 
-\subsection*{Simulation Design} A final major issue was preparing simulations that effectively explored the state space. Initial simulations used three other agents, one for each direction, but this resulted in very few observed states where a collision was possible. The resulting agent was unlikely to decelerate and avoid collisions.
+\subsection*{Simulation Design} A final major issue was preparing simulations that effectively explored the state space. Initial simulations used three other agents, randomly assigned to each lane, but this resulted in very few observed states where a collision was possible. The resulting agent was unlikely to decelerate and avoid collisions. We increased this number to 5, ensuring that the agent encounters situations with and without another car sharing its lane.
 
 \subsection*{Collision Course Detection}
 A major challenge was defining and fine-tuning the human driver models for the RL agent to train with, especially correctly implementing the yielding behavior. Many challenges also arose in identifying whether two vehicles are on a collision course. Two examples of this situation are shown in Figure \ref{fig:collision}.
@@ -237,46 +239,98 @@ Our hypothesis was that unsafe drivers would result in a slower policy that rece
 \begin{figure}[h]
 	\centering
 	\includegraphics[width=1.0\linewidth]{figures/final_convergence.pdf}
-	\caption{Convergence of four test cases for the final RL agent.}
+	\caption{Convergence of four test cases for the final RL agent. The jump is where we re-started the training loop after pausing it to save a snapshot of the value function.}
 	\label{fig:convergence}
 \end{figure}
 
 We used 50 runs per epoch, checking the convergence condition $\|U_k-U_{k-1}\|_2 / \|U_k\|_2 <\epsilon$ at the end of each epoch. For all agents, $\epsilon$ was set to $5e^{-4}$.
 
-The addition of unsafe drivers decreased the convergence rate (Figure \ref{fig:convergence}). However, all four agents were able to converge to a reasonably effective policy.
-\clearpage
+The addition of rule-breaking drivers decreased the convergence rate (Figure \ref{fig:convergence}). However, all four agents were able to converge to a reasonably effective policy.
+
+\subsection*{Evaluation of RL Agents} We trained four agents in total. To investigate the effect of the exploration rate $p$ (the probability of taking a random action), we trained one agent with $p=0.3$ and one with $p=0.5$, both in a simulation with no rule-breaking drivers. We found that the agent with the lower exploration rate performed noticeably worse, so we selected $p=0.5$ for the remaining agents.
+
+The third agent was trained with $p=0.5$ and 20\% rule-breaking drivers in the roundabout (4 rule-following drivers and one rule-breaking).
+The last agent was trained with $p=0.5$ and 40\% rule-breaking drivers (2 rule-breaking, 3 rule-following). This policy took the longest time to converge.
 
 %TODO baseline with all 4 human agents in this table
-\begin{table}[h!]
-	\begin{minipage}{\textwidth}
-		\centering
-		\begin{tabular}{c|p{5em}p{9em}ccc}
-			Agent & Training exploration & Percent rule-breaking agents in simulation & \# Completed trials & Passed trials & Collisions
-			\\\hline
-			Rule-following &N/A & 0\% & 136.67 & N/A & 1 \\
-			Rule-following &N/A & 25\% & 139.2 & N/A & 1 \\
-			Rule-following &N/A & 50\% & 137.83 & N/A &4\\
-			\verb|exp_03_unsafe_0| &0.3 & 0\%& 111.5 & 4.68 & 1\\
-			\verb|exp_05_unsafe_0| &0.5 &0\% &107.5 & 3.04 & 1 \\
-			\verb|exp_05_unsafe_025| &0.5 &25\% & 113.5 & 3.57 & 3 \\
-			\verb|exp_05_unsafe_05| &0.5 &50\%& 113.25 & 2.39 & 5 \\
-		\end{tabular}
-		\caption{Simulation results for various RL agents, choosing the optimal action (no exploration). ``Completed" runs result in the agent successfully crossing the roundabout. ``Passed" runs avoid a collision but do not cross the roundabout.}
-		\label{tab:agent_results}
-	\end{minipage}
-\end{table}
+%\begin{table}[h!]
+%	\begin{minipage}{\textwidth}
+%		\centering
+%		\begin{tabular}{c|p{5em}p{9em}ccc}
+%			Agent & Training exploration & Percent rule-breaking agents in simulation & \# Completed trials & Passed trials & Collisions
+%			\\\hline
+%			Rule-following &N/A & 0\% & 136.67 & N/A & 1 \\
+%			Rule-following &N/A & 25\% & 139.2 & N/A & 1 \\
+%			Rule-following &N/A & 50\% & 137.83 & N/A &4\\
+%			\verb|exp_03_unsafe_0| &0.3 & 0\%& 111.5 & 4.68 & 1\\
+%			\verb|exp_05_unsafe_0| &0.5 &0\% &107.5 & 3.04 & 1 \\
+%			\verb|exp_05_unsafe_025| &0.5 &25\% & 113.5 & 3.57 & 3 \\
+%			\verb|exp_05_unsafe_05| &0.5 &50\%& 113.25 & 2.39 & 5 \\
+%		\end{tabular}
+%		\caption{Simulation results for various RL agents, choosing the optimal action (no exploration). ``Completed" runs result in the agent successfully crossing the roundabout. ``Passed" runs avoid a collision but do not cross the roundabout.}
+%		\label{tab:agent_results}
+%	\end{minipage}
+%\end{table}
+\clearpage
+With 4 vehicles in the roundabout, the rule-breaking and rule-following baselines performed best (Fig. \ref{fig:success_4cars}). The rule-breaking agent, in particular, never stopped to wait for another vehicle in the roundabout (Fig. \ref{fig:passes_4cars}). We weren't able to draw any conclusion about whether the agents trained with rule-breaking drivers were more cautious, resulting in fewer successful crossings and fewer collisions, from Figure \ref{fig:passes_4cars}.
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/successes_3.pdf}
+	\caption{Success rate with 4 cars in roundabout.}
+	\label{fig:success_4cars}
+\end{figure}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/passes_3.pdf}
+	\caption{Pass rate with 4 cars in roundabout.}
+	\label{fig:passes_4cars}
+\end{figure}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/collisions_3.pdf}
+	\caption{Collision rate with 4 cars in roundabout.}
+	\label{fig:collisions_4cars}
+\end{figure}
 
-\subsection*{Comparison against Baseline} We can compare the performance of our hand-coded human driver with the various RL agents in Table \ref{tab:agent_results}.
-The RL agent performs similarly to the hand-coded agent, suggesting it is able to learn a reasonable policy. Both agents suffer collisions when rule-breaking drivers are added to the roundabout, suggesting improved collision avoidance would be a good next step.
+With 6 vehicles in the roundabout, performance was very poor with many collisions (Fig. \ref{fig:collisions_6cars}) and few successful attempts. All of the agents performed similarly poorly at crossing (Fig. \ref{fig:success_6cars} and \ref{fig:passes_6cars}), which raises the question of how well the hand-coded agents are in the first place. Perhaps given better drivers to interact with, the RL agents would learn a more effective policy.
 
-Inspecting the policy learned by the RL agents reveals many states remain unexplored.
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/successes.pdf}
+	\caption{Success rate with 6 cars in roundabout.}
+	\label{fig:success_6cars}
+\end{figure}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/passes.pdf}
+	\caption{Pass rate with 6 cars in roundabout.}
+	\label{fig:passes_6cars}
+\end{figure}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.9\linewidth]{figures/collisions.pdf}
+	\caption{Collision rate with 6 cars in roundabout.}
+	\label{fig:collisions_6cars}
+\end{figure}
+\clearpage
+
 % TODO finish here
 % TODO add some visualizations of the policy and then we are DONE.
+
+% TODO compare actual action choices vs hand coded policy
+
+\section{Did RL actually work?} We would be remiss if we did not evaluate the RL agents skeptically, as RL has been accused of many misdeeds. %TODO citation needed
+Since this project suffered from poor implementation of the rule-breaking and rule-following drivers, we compared the state-action maps of the RL agents against the rule-following driver. 
+
+\section*{Conclusions}
+%TODO
+
+Source code, data and figures for this paper can be accessed at. %TODO
 
 \section*{Acknowledgments}
 I would like to thank Prof. Kochenderfer and all of his TAs for being great this quarter, teaching a lot of interesting material and giving us the freedom to be creative with our final projects.
 
-SISL developed the AutomotiveSimulator.jl package which provided a reliable base for RL training and simulations.
+SISL developed the AutomotiveSimulator.jl package which provided a reliable base for RL training and simulations. All errors in software judgment are my own.
 
 Finally, my original proposal was to use MDPs for modeling intersections. Credit for the switch to a more interesting topic goes to all of the sub-optimal drivers holding up traffic in Stanford's roundabouts.
 %\vspace{1em}\\
